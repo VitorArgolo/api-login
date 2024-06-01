@@ -7,14 +7,14 @@ const bodyParser = require('body-parser');
 const authMiddleware = require('./authMiddleware');
 const { v4: uuidv4 } = require('uuid');
 const nodemailer = require('nodemailer');
-
+const axios = require('axios');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const SECRET_KEY = 'sua_chave_secreta_para_jwt';
+const MONITORING_API_URL = 'https://api-monitoramento-1.onrender.com/logs';
 
 app.use(cors()); // Middleware CORS global
-
 app.use(bodyParser.json()); // Middleware body-parser para analisar JSON no corpo da requisição
 
 // Conexão com o banco de dados SQLite
@@ -37,6 +37,26 @@ const db = new sqlite3.Database('./database.db', err => {
         }
         console.log('Conectado ao banco de dados SQLite e tabela de usuários criada.');
     });
+});
+
+// Middleware para enviar logs para a API de monitoramento
+app.use((req, res, next) => {
+    const log = {
+        timestamp: new Date(),
+        method: req.method,
+        path: req.path,
+        body: req.body
+    };
+
+    axios.post(MONITORING_API_URL, log)
+        .then(response => {
+            console.log('Log enviado para API de monitoramento:', response.data);
+        })
+        .catch(error => {
+            console.error('Erro ao enviar log para API de monitoramento:', error);
+        });
+
+    next();
 });
 
 // Rota para registro de usuário
@@ -71,7 +91,6 @@ app.post('/register', async (req, res) => {
         });
     });
 });
-
 
 // Rota para login de usuário
 app.post('/login', async (req, res) => {
@@ -149,7 +168,7 @@ app.post('/change-password', authMiddleware, async (req, res) => {
 // Armazenar temporariamente os números de redefinição e os usuários associados
 const passwordResetRequests = {};
 
-
+// Configuração do serviço de e-mail
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
@@ -163,7 +182,8 @@ const enviarEmail = async (destinatario, assunto, corpo) => {
     try {
         // Configurar informações do e-mail
         const mailOptions = {
-            from: 'seu_email@example.com',
+            from
+            : 'seu_email@example.com',
             to: destinatario,
             subject: assunto,
             text: corpo
@@ -207,8 +227,6 @@ app.post('/forgot-password', async (req, res) => {
         res.json({ message: 'E-mail de redefinição de senha enviado com sucesso!' });
     });
 });
-
-
 
 // Iniciar o servidor
 app.listen(PORT, () => {
