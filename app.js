@@ -1,5 +1,5 @@
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
+const { Client } = require('pg');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const cors = require('cors');
@@ -17,27 +17,21 @@ const MONITORING_API_URL = 'https://api-monitoramento-1.onrender.com/logs';
 app.use(cors()); // Middleware CORS global
 app.use(bodyParser.json()); // Middleware body-parser para analisar JSON no corpo da requisição
 
-// Conexão com o banco de dados SQLite
-const db = new sqlite3.Database('./database.db', err => {
-    if (err) {
-        console.error(err.message);
-        return;
-    }
-    // Cria a tabela de usuários se ainda não existir
-    db.run(`CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT NOT NULL,
-        password TEXT NOT NULL,
-        name TEXT,
-        phone TEXT
-    )`, err => {
-        if (err) {
-            console.error(err.message);
-            return;
-        }
-        console.log('Conectado ao banco de dados SQLite e tabela de usuários criada.');
-    });
+// Conexão com o banco de dados PostgreSQL
+const client = new Client({
+  connectionString: 'postgres://pipeguard:kg2od1Ym78w8PXgr4XAjF6CEMosPfe47@dpg-cp0op4njbltc73e12nqg-a.oregon-postgres.render.com/monitoramento_a2ud',
+  ssl: {
+    rejectUnauthorized: false
+  }
 });
+
+client.connect()
+  .then(() => {
+    console.log('Conectado ao banco de dados PostgreSQL');
+  })
+  .catch(err => {
+    console.error('Erro na conexão com o banco de dados PostgreSQL', err);
+  });
 
 // Middleware para enviar logs para a API de monitoramento
 app.use((req, res, next) => {
@@ -67,22 +61,21 @@ app.post('/register', async (req, res) => {
     }
     
     // Verificar se o email já está registrado no banco de dados
-    const checkEmailQuery = `SELECT * FROM users WHERE username = ?`;
-    db.get(checkEmailQuery, [username], async (err, user) => {
+    const checkEmailQuery = `SELECT * FROM users WHERE username = $1`;
+    client.query(checkEmailQuery, [username], async (err, result) => {
         if (err) {
             console.error(err.message);
             return res.status(500).json({ message: 'Erro ao verificar o email!' });
         }
-        if (user) {
+        if (result.rows.length > 0) {
             return res.status(400).json({ message: 'Este email já está registrado!' });
         }
         
         // Se o email não estiver registrado, continue com o processo de registro
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        const sql = `INSERT INTO users (username, password, name, phone) VALUES (?, ?, ?, ?)`;
-
-        db.run(sql, [username, hashedPassword, name, phone], err => {
+        const insertQuery = `INSERT INTO users (username, password, name, phone) VALUES ($1, $2, $3, $4)`;
+        client.query(insertQuery, [username, hashedPassword, name, phone], (err, result) => {
             if (err) {
                 console.error(err.message);
                 return res.status(500).json({ message: 'Erro ao registrar usuário!' });
@@ -96,12 +89,13 @@ app.post('/register', async (req, res) => {
 app.post('/login', async (req, res) => {
     const { username, password } = req.body;
 
-    const sql = `SELECT * FROM users WHERE username = ?`;
-    db.get(sql, [username], async (err, user) => {
+    const sql = `SELECT * FROM users WHERE username = $1`;
+    client.query(sql, [username], async (err, result) => {
         if (err) {
             console.error(err.message);
             return res.status(500).json({ message: 'Erro ao autenticar usuário!' });
         }
+        const user = result.rows[0];
         if (!user) {
             return res.status(401).json({ message: 'Credenciais inválidas!' });
         }
@@ -118,18 +112,20 @@ app.post('/login', async (req, res) => {
 app.get('/me', authMiddleware, (req, res) => {
     const { username } = req.user;
 
-    const sql = `SELECT username, name, phone FROM users WHERE username = ?`;
-    db.get(sql, [username], (err, user) => {
+    const sql = `SELECT username, name, phone FROM users WHERE username = $1`;
+    client.query(sql, [username], (err, result) => {
         if (err) {
             console.error(err.message);
             return res.status(500).json({ message: 'Erro ao obter detalhes do usuário!' });
         }
+        const user = result.rows[0];
         if (!user) {
             return res.status(404).json({ message: 'Usuário não encontrado!' });
         }
         res.json(user);
     });
 });
+
 
 // Rota para troca de senha
 app.post('/change-password', authMiddleware, async (req, res) => {
