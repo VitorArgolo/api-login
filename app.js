@@ -23,7 +23,7 @@ const db = new sqlite3.Database('./database.db', err => {
         console.error(err.message);
         return;
     }
-    // Cria a tabela de usuários se ainda não existir
+    // Cria a tabela de usuários 
     db.run(`CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT NOT NULL,
